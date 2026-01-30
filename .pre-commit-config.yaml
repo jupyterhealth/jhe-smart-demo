@@ -1,0 +1,45 @@
+ci:
+  autoupdate_schedule: monthly
+
+repos:
+  # autoformat and lint Python code
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.10
+    hooks:
+      - id: ruff
+        types_or:
+          - python
+          - jupyter
+        args: ["--fix", "--show-fixes"]
+      - id: ruff-format
+        types_or:
+          - python
+          - jupyter
+
+  # Autoformat: markdown, yaml, javascript (see the file .prettierignore)
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.7.4
+    hooks:
+      - id: prettier
+        exclude: .*/templates/.*
+
+  # autoformat HTML templates
+  - repo: https://github.com/djlint/djLint
+    rev: v1.36.4
+    hooks:
+      - id: djlint-reformat-jinja
+        files: ".*templates/.*.html"
+        types_or: ["html"]
+        exclude: redoc.html
+      - id: djlint-jinja
+        files: ".*templates/.*.html"
+        types_or: ["html"]
+
+  # Autoformat and linting, misc. details
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: share/jupyterhub/static/js/admin-react.js
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs

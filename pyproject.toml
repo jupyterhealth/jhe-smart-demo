@@ -1,0 +1,28 @@
+
+[tool.ruff.lint]
+ignore = [
+    "F841", # unused variable
+]
+select = [
+    "E9", # syntax
+    "I", # isort
+    "UP", # pyupgrade
+    "F", # flake8
+]
+
+# djlint lints/formats our jinja templates
+# https://djlint.com/docs/configuration/
+[tool.djlint]
+indent = 2
+# ignore often-incorrect lint
+# H006: image height/width attributes
+# ignore style lint that formatter doesn't catch
+# H008: double-quotes
+# H029: form method case
+ignore = "H006,H008,H021,H029"
+use_gitignore = true
+
+format_js = true
+
+[tool.djlint.js]
+indent_size = 2

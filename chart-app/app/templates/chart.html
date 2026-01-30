@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="description" content="JupyterHealth SMART on FHIR demo" />
+    <meta name="keywords" content="SMART, FHIR, Jupyter" />
+    <title>JupyterHealth SMART on FHIR demo</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Helvetica, Arial, sans-serif;
+      }
+
+      .error {
+        color: red;
+      }
+    </style>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm//vega@5"></script>
+    <script type="text/javascript"
+            src="https://cdn.jsdelivr.net/npm//vega-lite@5.6.0"></script>
+    <script type="text/javascript"
+            src="https://cdn.jsdelivr.net/npm//vega-embed@6"></script>
+  </head>
+  <body>
+    <h1>JupyterHealth Exchange SMART on FHIR demo</h1>
+    <h2>SMART on FHIR Credentials</h2>
+    {% if practitioner_name %}
+      <p>Practitioner: {{ practitioner_name }}, id: {{ practitioner_id }}</p>
+      <p>Patient: {{ patient_name }}, id: {{ practitioner_id }}</p>
+    {% else %}
+      <p class="error">Please launch via SMART Launch in the EHR to get FHIR credentials.</p>
+    {% endif %}
+    <h2>JupyterHealth Exchange Credentials</h2>
+    {% if jhe_user %}
+      <p>User: {{ jhe_name }}</p>
+    {% else %}
+      <p class="error">No JHE credentials!</p>
+    {% endif %}
+    <h2>Chart</h2>
+    <div id="vis"></div>
+    <script type="text/javascript">
+      async function refreshPlot() {
+        // begin constructing URL to request the plot JSON
+        const plotUrl = new URL(
+          `${document.location.protocol}//${document.location.host}/chart.json`,
+        );
+        const response = await fetch(plotUrl.href);
+        const spec = await response.json();
+
+        const embedOpt = {
+          mode: "vega-lite"
+        };
+
+        function showError(el, error) {
+          el.innerHTML =
+            '<div class="error" style="color:red;">' +
+            "<p>JavaScript Error: " +
+            error.message +
+            "</p>" +
+            "<p>This usually means there's a typo in your chart specification. " +
+            "See the javascript console for the full traceback.</p>" +
+            "</div>";
+          throw error;
+        }
+        const el = document.getElementById("vis");
+        vegaEmbed("#vis", spec, embedOpt).catch((error) =>
+          showError(el, error),
+        );
+      }
+      refreshPlot();
+    </script>
+  </body>
+</html>

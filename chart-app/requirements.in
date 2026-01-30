@@ -1,0 +1,4 @@
+altair
+fastapi[all]
+pandas
+jupyterhealth-client
