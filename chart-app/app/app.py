@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 # new cookie secret on each launch
 secret_key = secrets.token_hex(32)
 
-HOST = "http://localhost:8000"
+HOST = os.environ["APP_HOST"]
 
 smart_defaults = {
     "app_id": os.environ["FHIR_CLIENT_ID"],
@@ -37,7 +37,7 @@ smart_defaults = {
 
 jhe_settings = {
     "url": os.environ["JHE_URL"],
-    "client_id": os.environ["JHE_CLIENT_ID"],
+    # "client_id": os.environ["JHE_CLIENT_ID"],
 }
 
 
@@ -88,15 +88,16 @@ class SessionState(BaseModel):
         else:
             return None
 
-    def new_fhir(self, settings):
+    def new_fhir(self, settings) -> FHIRClient:
         """Reset and create new FHIR state
 
         At the start of SMART on FHIR launch.
         """
         self.fhir_state = {}
-        return FHIRClient(settings=settings, save_func=self._save_fhir_state)
+        client = FHIRClient(settings=settings, save_func=self._save_fhir_state)
+        self._save_fhir_state(client.state)
+        return client
 
-    @property
     def get_jhe(self) -> JupyterHealthClient | None:
         """Get JupyterHealth Client object"""
         if self.jhe_token:
@@ -190,6 +191,10 @@ async def index(request: Request):
 def fhir_callback(request: Request, code: str):
     """OAuth2 callback for FHIR"""
     fhir = _get_fhir(request.session)
+    if fhir is None:
+        print(request.session)
+        print(_sessions)
+        raise HTTPException(status_code=400, detail="no session, start again.")
     try:
         fhir.handle_callback(str(request.url))
     except Exception as e:
@@ -213,8 +218,9 @@ def launch(request: Request, iss: str, launch: str):
     smart_settings["api_base"] = iss
     smart_settings["launch_token"] = launch
     fhir = session_state.new_fhir(smart_settings)
+    assert _get_fhir(request.session) is not None
     auth_url = fhir.authorize_url
-    log.info("redirecting to", auth_url)
+    log.info("redirecting to %s", auth_url)
     return RedirectResponse(auth_url)
 
 

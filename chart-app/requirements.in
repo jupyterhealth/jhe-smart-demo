@@ -1,4 +1,5 @@
 altair
 fastapi[all]
+fhirclient
 pandas
 jupyterhealth-client

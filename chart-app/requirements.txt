@@ -46,6 +46,8 @@ fastapi-cloud-cli==0.11.0
     # via fastapi-cli
 fastar==0.8.0
     # via fastapi-cloud-cli
+fhirclient==4.3.2
+    # via -r requirements.in
 h11==0.16.0
     # via
     #   httpcore
@@ -130,7 +132,9 @@ referencing==0.37.0
     #   jsonschema
     #   jsonschema-specifications
 requests==2.32.5
-    # via jupyterhealth-client
+    # via
+    #   fhirclient
+    #   jupyterhealth-client
 rich==14.3.1
     # via
     #   rich-toolkit
