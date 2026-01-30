@@ -32,9 +32,11 @@
     {% endif %}
     <h2>JupyterHealth Exchange Credentials</h2>
     {% if jhe_user %}
-      <p>User: {{ jhe_name }}</p>
+      <p>Name: {{ jhe_user['firstName'] }} {{ jhe_user['lastName'] }}</p>
+      <p>email: {{ jhe_user['email'] }}</p>
+      <p>id: {{ jhe_user['id'] }}</p>
     {% else %}
-      <p class="error">No JHE credentials!</p>
+      <a href="{{ url_for('jhe_login') }}">Login with JHE</a>
     {% endif %}
     <h2>Chart</h2>
     <div id="vis"></div>

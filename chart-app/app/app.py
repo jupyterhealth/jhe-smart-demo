@@ -11,7 +11,9 @@ import hashlib
 import logging
 import secrets
 from pathlib import Path
+from urllib.parse import urlencode
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -26,6 +28,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 log = logging.getLogger(__name__)
 
+
 class Settings(BaseSettings):
     """Load settings from environment"""
 
@@ -37,6 +40,7 @@ class Settings(BaseSettings):
     fhir_api_base: str
 
     jhe_url: str
+    jhe_client_id: str
     jhe_public_url: str = ""
 
     @field_validator("jhe_public_url", mode="before")
@@ -55,16 +59,16 @@ class Settings(BaseSettings):
         return f"{self.app_host}/callback"
 
     @computed_field
-    def jhe_redirect_uri(self) -> str:
-        return f"{self.app_host}/jhe_callback"
-
-    @computed_field
     def fhir_defaults(self) -> dict:
         return {
             "app_id": self.fhir_client_id,
             "api_base": self.fhir_api_base,
             "redirect_uri": self.fhir_redirect_uri,
         }
+
+    @computed_field
+    def jhe_redirect_uri(self) -> str:
+        return f"{self.app_host}/jhe_callback"
 
 
 settings = Settings()
@@ -209,9 +213,7 @@ async def index(request: Request):
     jhe = _get_jhe(request.session)
     if jhe:
         jhe_user = jhe.get_user()
-        print(jhe_user)
         ns["jhe_user"] = jhe_user
-        ns["jhe_name"] = jhe_user[""]
     else:
         ns["jhe_user"] = False
     return templates.TemplateResponse("chart.html", ns)
@@ -222,8 +224,6 @@ def fhir_callback(request: Request, code: str):
     """OAuth2 callback for FHIR"""
     fhir = _get_fhir(request.session)
     if fhir is None:
-        print(request.session)
-        print(_sessions)
         raise HTTPException(status_code=400, detail="no session, start again.")
     try:
         fhir.handle_callback(str(request.url))
@@ -257,9 +257,96 @@ def launch(request: Request, iss: str, launch: str):
 
 # JHE handlers
 
-# @app.get("/jhe-login")
-# async def jhe_login(request: Request):
-# session = _get_session(request.session, make_new=True)
+
+def _generate_pkce_params():
+    code_verifier = secrets.token_urlsafe(32)
+    code_challenge = hashlib.sha256(code_verifier.encode("utf-8")).digest()
+    code_challenge_base64 = (
+        base64.urlsafe_b64encode(code_challenge).decode("utf-8").rstrip("=")
+    )
+    return code_verifier, code_challenge_base64
+
+
+@app.get("/jhe_login")
+async def jhe_login(request: Request) -> None:
+    session = _get_session(request.session, make_new=True)
+    assert session is not None
+    if session.jhe_token:
+        jhe = session.get_jhe()
+        assert jhe is not None
+        try:
+            user = jhe.get_user()
+        except Exception:
+            log.error("Failed to get JHE user")
+            session.jhe_token = ""
+        else:
+            # logged in, go back home
+            return RedirectResponse("/")
+
+    # begin OAuth redirect
+    session.jhe_oauth_state = state = secrets.token_urlsafe(16)
+    authorize_url = f"{settings.jhe_public_url}/o/authorize"
+
+    code_verifier, code_challenge = _generate_pkce_params()
+    session.jhe_code_verifier = code_verifier
+
+    authorize_params = {
+        "state": state,
+        "client_id": settings.jhe_client_id,
+        "response_type": "code",
+        "redirect_uri": settings.jhe_redirect_uri,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    return RedirectResponse(f"{authorize_url}?{urlencode(authorize_params)}")
+
+
+@app.get("/jhe_callback")
+async def jhe_callback(
+    request: Request,
+    code: str = "",
+    error: str = "",
+    error_description: str = "",
+    state: str = "",
+):
+    """Complete OAuth callback"""
+    session = _get_session(request.session)
+    if session is None:
+        raise HTTPException(400, "No session, login again")
+
+    check_state = session.jhe_oauth_state
+    session.jhe_oauth_state = ""
+
+    if error:
+        raise HTTPException(500, error_description)
+    if not code:
+        raise HTTPException(400, "Missing code= parameter")
+
+    token_url = f"{settings.jhe_url}/o/token/"
+    if not state:
+        raise HTTPException(400, "OAuth state missing")
+    if state != check_state:
+        raise HTTPException(400, "OAuth state doesn't match")
+
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            token_url,
+            data={
+                "code": code,
+                "grant_type": "authorization_code",
+                "client_id": settings.jhe_client_id,
+                # client_secret if confidential
+                "code_verifier": session.jhe_code_verifier,
+            },
+        )
+        r.raise_for_status()
+        token_response = r.json()
+    session.jhe_token = token_response["access_token"]
+    jhe = session.get_jhe()
+    assert jhe is not None
+    user = jhe.get_user()
+    log.info("Authenticated with JHE as %s", user)
+    return RedirectResponse("/")
 
 
 # @app.get("/chart.json")

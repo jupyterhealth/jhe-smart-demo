@@ -20,7 +20,7 @@ services:
   jhe:
     depends_on:
       - db
-    image: ghcr.io/jupyterhealth/jupyterhealth-exchange:d1754dc
+    image: ghcr.io/jupyterhealth/jupyterhealth-exchange:95d8c0b
     ports:
       - 127.0.0.1:9000:8000
     env_file:
