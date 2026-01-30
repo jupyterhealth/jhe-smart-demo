@@ -2,4 +2,5 @@ altair
 fastapi[all]
 fhirclient
 pandas
+pydantic-settings
 jupyterhealth-client

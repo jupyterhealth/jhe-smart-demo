@@ -6,8 +6,9 @@ with JupyterHealth Exchange integration
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
-import os
 import secrets
 from pathlib import Path
 
@@ -16,7 +17,8 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fhirclient.client import FHIRClient
 from jupyterhealth_client import JupyterHealthClient
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -24,27 +26,53 @@ logging.basicConfig(level=logging.DEBUG)
 
 log = logging.getLogger(__name__)
 
-# new cookie secret on each launch
-secret_key = secrets.token_hex(32)
+class Settings(BaseSettings):
+    """Load settings from environment"""
 
-HOST = os.environ["APP_HOST"]
+    model_config = SettingsConfigDict(env_file=".env")
 
-smart_defaults = {
-    "app_id": os.environ["FHIR_CLIENT_ID"],
-    "api_base": os.environ["FHIR_API_BASE"],
-    "redirect_uri": f"{HOST}/callback",
-}
+    app_host: str = "http://127.0.0.1:8000"
+    secret_key: str = secrets.token_hex(32)
+    fhir_client_id: str
+    fhir_api_base: str
 
-jhe_settings = {
-    "url": os.environ["JHE_URL"],
-    # "client_id": os.environ["JHE_CLIENT_ID"],
-}
+    jhe_url: str
+    jhe_public_url: str = ""
 
+    @field_validator("jhe_public_url", mode="before")
+    @classmethod
+    def _public_url(
+        cls,
+        v: str,
+        values,
+    ) -> str:
+        if not v:
+            return values.data["jhe_url"]
+        return v
+
+    @computed_field
+    def fhir_redirect_uri(self) -> str:
+        return f"{self.app_host}/callback"
+
+    @computed_field
+    def jhe_redirect_uri(self) -> str:
+        return f"{self.app_host}/jhe_callback"
+
+    @computed_field
+    def fhir_defaults(self) -> dict:
+        return {
+            "app_id": self.fhir_client_id,
+            "api_base": self.fhir_api_base,
+            "redirect_uri": self.fhir_redirect_uri,
+        }
+
+
+settings = Settings()
 
 middleware = [
     Middleware(
         SessionMiddleware,
-        secret_key=secret_key,
+        secret_key=settings.secret_key,
         # should have https_only if on https (i.e. real deployment)
         # https_only=True,
     )
@@ -56,7 +84,7 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 # in memory storage of state
 # this should be out-of-memory (e.g. db) for multiple replicas, etc.
-_sessions = {}
+_sessions: dict[str, SessionState] = {}
 
 
 SESSION_KEY = "session_id"
@@ -74,6 +102,8 @@ class SessionState(BaseModel):
 
     fhir_state: dict = {}
     jhe_token: str = ""
+    jhe_oauth_state: str = ""
+    jhe_code_verifier: str = ""
 
     def _save_fhir_state(self, state):
         """Persist updates to the state
@@ -212,9 +242,10 @@ def logout(request: Request):
 @app.get("/launch")
 def launch(request: Request, iss: str, launch: str):
     session_state = _get_session(request.session, make_new=True)
+    assert session_state is not None
     # reset for new launch
     smart_settings = {}
-    smart_settings.update(smart_defaults)
+    smart_settings.update(settings.fhir_defaults)
     smart_settings["api_base"] = iss
     smart_settings["launch_token"] = launch
     fhir = session_state.new_fhir(smart_settings)
