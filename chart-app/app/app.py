@@ -123,7 +123,7 @@ class SessionState(BaseModel):
             return None
 
 
-def _get_session(session: dict, make_new: bool = False) -> SessionState | None:
+def _get_session(request: Request, make_new: bool = False) -> SessionState | None:
     """Get a single session state object
 
     If no session is found:
@@ -131,29 +131,39 @@ def _get_session(session: dict, make_new: bool = False) -> SessionState | None:
     - if not make_new: return None
     - if make_new: create and register new session id, return empty Session
     """
-    if SESSION_KEY in session:
+    session = request.session
+    print(request.headers)
+    if request.headers.get("sec-fetch-dest") == "iframe" and request.headers[
+        "host"
+    ].partition(":")[0] in {"localhost", "127.0.0.1"}:
+        # security prevents setting for localhost iframes,
+        # use 'iframe' as session id in that case
+        # this doesn't affect public deployments
+        log.info("Using localhost iframe session")
+        session_id = "iframe"
+    elif SESSION_KEY in session:
         session_id = session[SESSION_KEY]
+    else:
+        session_id = None
 
-    # fake persistent session id
-    # needed for iframe credentials
-    session_id = "session_id"
     if session_id:
         session_state = _sessions.get(session_id)
         if session_state is not None:
             return session_state
 
     if make_new:
-        # session_id = secrets.token_urlsafe(16)
-        session[SESSION_KEY] = session_id
+        if session_id != "iframe":
+            session_id = secrets.token_urlsafe(16)
+            session[SESSION_KEY] = session_id
         _sessions[session_id] = s = SessionState()
         return s
     else:
         return None
 
 
-def _get_jhe(session) -> JupyterHealthClient | None:
+def _get_jhe(request) -> JupyterHealthClient | None:
     """Get the current session's JupyterHealthClient, if any"""
-    state = _get_session(session)
+    state = _get_session(request)
     if state is None:
         return None
     return state.get_jhe()
@@ -166,6 +176,7 @@ def _logout(session):
 
 
 def _human_name(resource):
+    """Format a FHIR resource's name"""
     name = resource.get("name")
     if not name:
         return "unknown"
@@ -184,7 +195,8 @@ def _human_name(resource):
 @app.get("/index.html")
 async def index(request: Request):
     """The app's main page."""
-    session = _get_session(request.session)
+    print(request.headers)
+    session = _get_session(request)
     fhir = jhe = None
     if session:
         fhir = session.fhir_context
@@ -233,7 +245,7 @@ async def index(request: Request):
             ns["practitioner_name"] = _human_name(practitioner)
             ns["practitioner_id"] = practitioner["id"]
 
-    jhe = _get_jhe(request.session)
+    jhe = _get_jhe(request)
     if jhe:
         # TODO: handle expired token
         jhe_user = jhe.get_user()
@@ -250,7 +262,8 @@ async def index(request: Request):
 
 @app.get("/chart.json")
 def chart_json(request: Request):
-    session = _get_session(request.session)
+    session = _get_session(request)
+    print(request.session.request)
     fhir = jhe = None
     if session:
         fhir = session.fhir_context
@@ -285,7 +298,7 @@ def logout(request: Request):
 
 @app.get("/launch")
 async def launch(request: Request, iss: str, launch: str):
-    session_state = _get_session(request.session, make_new=True)
+    session_state = _get_session(request, make_new=True)
     session_state.fhir_api = iss.rstrip("/")
     assert session_state is not None
     print("launch!")
@@ -310,7 +323,7 @@ async def fhir_callback(
     state: str = "",
 ):
     """OAuth2 callback for FHIR"""
-    session = _get_session(request.session)
+    session = _get_session(request)
     if session is None:
         raise HTTPException(status_code=400, detail="no session, start again.")
 
@@ -403,7 +416,7 @@ async def _openid_authorize_redirect(
 
 @app.get("/jhe_login")
 async def jhe_login(request: Request) -> None:
-    session = _get_session(request.session, make_new=True)
+    session = _get_session(request, make_new=True)
     assert session is not None
     if session.jhe_token:
         jhe = session.get_jhe()
@@ -486,7 +499,7 @@ async def jhe_callback(
     state: str = "",
 ):
     """Complete OAuth callback"""
-    session = _get_session(request.session)
+    session = _get_session(request)
     if session is None:
         raise HTTPException(400, "No session, login again")
 
