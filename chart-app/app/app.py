@@ -132,12 +132,17 @@ def _get_session(session: dict, make_new: bool = False) -> SessionState | None:
     """
     if SESSION_KEY in session:
         session_id = session[SESSION_KEY]
+
+    # fake persistent session id
+    # needed for iframe credentials
+    session_id = "session_id"
+    if session_id:
         session_state = _sessions.get(session_id)
         if session_state is not None:
             return session_state
 
     if make_new:
-        session_id = secrets.token_urlsafe(16)
+        # session_id = secrets.token_urlsafe(16)
         session[SESSION_KEY] = session_id
         _sessions[session_id] = s = SessionState()
         return s

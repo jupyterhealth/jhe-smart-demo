@@ -36,7 +36,10 @@
       <p>email: {{ jhe_user['email'] }}</p>
       <p>id: {{ jhe_user['id'] }}</p>
     {% else %}
-      <a href="{{ url_for('jhe_login') }}">Login with JHE</a>
+      <p>
+        <a href="{{ url_for('jhe_login') }}">Login with JHE</a>
+      </p>
+      <em>this will be automatic after what Travis is working on</em>
     {% endif %}
     <h2>Chart</h2>
     <div id="vis"></div>
