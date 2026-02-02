@@ -32,9 +32,15 @@
     {% endif %}
     <h2>JupyterHealth Exchange Credentials</h2>
     {% if jhe_user %}
-      <p>Name: {{ jhe_user['firstName'] }} {{ jhe_user['lastName'] }}</p>
+      <p>Practitioner name: {{ jhe_user['firstName'] }} {{ jhe_user['lastName'] }}</p>
       <p>email: {{ jhe_user['email'] }}</p>
-      <p>id: {{ jhe_user['id'] }}</p>
+      <p>JHE id: {{ jhe_user['id'] }}</p>
+      {% if jhe_patient %}
+        <p>JHE Patient name: {{ jhe_patient['nameGiven'] }} {{ jhe_patient['nameFamily'] }}</p>
+        <p>email: {{ jhe_patient['telecomEmail'] }}</p>
+        <p>JHE id: {{ jhe_patient['id'] }}</p>
+        <p>external id: {{ jhe_patient['identifier'] }}</p>
+      {% endif %}
     {% else %}
       <p>
         <a href="{{ url_for('jhe_login') }}">Login with JHE</a>
@@ -43,6 +49,9 @@
     {% endif %}
     <h2>Chart</h2>
     <div id="vis"></div>
+    <p>
+      <a href="{{ url_for('logout') }}">Logout</a>
+    </p>
     <script type="text/javascript">
       async function refreshPlot() {
         // begin constructing URL to request the plot JSON
@@ -72,7 +81,11 @@
           showError(el, error),
         );
       }
-      refreshPlot();
     </script>
+    {% if jhe_patient %}
+      <script type="text/javascript">
+        refreshPlot();
+      </script>
+    {% endif %}
   </body>
 </html>

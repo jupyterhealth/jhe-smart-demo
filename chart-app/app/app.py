@@ -13,13 +13,14 @@ import secrets
 from pathlib import Path
 from urllib.parse import urlencode, urlparse, urlunparse
 
+import altair as alt
 import httpx
 import jwt
 from async_lru import alru_cache
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
-from jupyterhealth_client import JupyterHealthClient
+from jupyterhealth_client import Code, JupyterHealthClient
 from pydantic import BaseModel, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.middleware import Middleware
@@ -237,9 +238,42 @@ async def index(request: Request):
         # TODO: handle expired token
         jhe_user = jhe.get_user()
         ns["jhe_user"] = jhe_user
+        if fhir:
+            jhe_patient = jhe.get_patient_by_external_id(ns["patient_id"])
+            ns["jhe_patient"] = jhe_patient
+        else:
+            jhe_patient = None
     else:
         ns["jhe_user"] = False
     return templates.TemplateResponse("chart.html", ns)
+
+
+@app.get("/chart.json")
+def chart_json(request: Request):
+    session = _get_session(request.session)
+    fhir = jhe = None
+    if session:
+        fhir = session.fhir_context
+        jhe = session.get_jhe()
+
+    if not fhir and jhe:
+        return None
+    fhir_patient_id = fhir["patient"]
+    jhe_patient = jhe.get_patient_by_external_id(fhir_patient_id)
+    df = df = jhe.list_observations_df(
+        patient_id=jhe_patient["id"], code=Code.BLOOD_GLUCOSE
+    )
+    chart = (
+        alt.Chart(df)
+        .mark_line()
+        .encode(
+            x="effective_time_frame_date_time",
+            y="blood_glucose_value",
+            tooltip=["effective_time_frame_date_time", "blood_glucose_value"],
+        )
+        .interactive()
+    )
+    return chart.to_dict()
 
 
 @app.get("/logout")
@@ -476,14 +510,6 @@ async def jhe_callback(
     user = jhe.get_user()
     log.info("Authenticated with JHE as %s", user)
     return RedirectResponse("/")
-
-
-# @app.get("/chart.json")
-# def chart_json():
-# return {}
-# df = get_data()
-# chart = alt.Chart(df)...
-# return chart.to_dict()
 
 
 def main():
