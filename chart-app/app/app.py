@@ -173,6 +173,7 @@ async def launch(request: Request, iss: str, launch: str):
         redirect_uri=settings.fhir_redirect_uri,
         scope="user/*.* patient/*.read openid profile launch launch/patient",
         extra_params={"launch": launch, "aud": session_state.fhir_api},
+        smart=True,
     )
     session_state.fhir_code_verifier = code_verifier
     session_state.fhir_oauth_state = state
@@ -209,6 +210,7 @@ async def fhir_callback(
             "redirect_uri": settings.fhir_redirect_uri,
             "state": state,
         },
+        smart=True,
     )
     session.fhir_context = token_response
     session.fhir_token = token_response["access_token"]

@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import urlencode
 
 import httpx
 from async_lru import alru_cache
@@ -22,34 +22,24 @@ def _generate_pkce_params():
 
 
 @alru_cache
-async def _get_openid_config(openid_base_uri):
+async def _get_openid_config(openid_base_uri, smart=False):
+    if smart:
+        config_path = ".well-known/smart-configuration"
+    else:
+        config_path = ".well-known/openid-configuration"
     async with httpx.AsyncClient() as client:
-        url = f"{openid_base_uri.rstrip('/')}/.well-known/openid-configuration"
-        try:
-            r = await client.get(url)
-            r.raise_for_status()
-        except Exception as e:
-            # if not
-            url = urlunparse(
-                urlparse(openid_base_uri)._replace(
-                    path="/.well-known/openid-configuration"
-                )
-            )
-            try:
-                r = await client.get(url)
-                r.raise_for_status()
-            except Exception as e2:
-                raise e from None
-
+        url = f"{openid_base_uri.rstrip('/')}/{config_path}"
+        r = await client.get(url)
+        r.raise_for_status()
         config = r.json()
     return config
 
 
 async def _openid_authorize_redirect(
-    openid_base_uri, client_id, redirect_uri, scope, extra_params=None
+    openid_base_uri, client_id, redirect_uri, scope, smart=False, extra_params=None
 ):
     state = secrets.token_urlsafe(16)
-    openid_config = await _get_openid_config(openid_base_uri)
+    openid_config = await _get_openid_config(openid_base_uri, smart=smart)
     authorize_url = openid_config["authorization_endpoint"]
     code_verifier, code_challenge = _generate_pkce_params()
 
@@ -78,9 +68,10 @@ async def _openid_token_callback(
     state,
     check_state,
     code_verifier,
+    smart=False,
     extra_params=None,
 ):
-    openid_config = await _get_openid_config(openid_base_uri)
+    openid_config = await _get_openid_config(openid_base_uri, smart=smart)
     token_url = openid_config["token_endpoint"]
 
     if error:
