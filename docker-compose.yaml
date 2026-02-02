@@ -35,8 +35,8 @@ services:
       - ${PWD}/fhir/hapi.application.yaml:/app/config/application.yaml
 
   fhirproxy:
-    image: aehrc/smart-launcher-v2
-    # image: smartonfhir/smart-launcher-2
+    # image: aehrc/smart-launcher-v2
+    image: smartonfhir/smart-launcher-2
     ports:
       - "4444:4444"
     links:
@@ -48,14 +48,27 @@ services:
       FHIR_SERVER_R4: "http://fhir:8080/fhir"
       SECRET: "insecure"
 
-  launcher:
-    image: ghcr.io/aehrc/smart-ehr-launcher/smart-launcher-v2:sha-f1b2b74
-    links:
-      - db
+  smart-launcher:
+    image: smartonfhir/smart-launcher:latest
     ports:
-      - 8080:80
-    volumes:
-      - ${PWD}/launcher/config.json:/usr/share/nginx/html/config.json
+      - 9090:80
+    links:
+      - fhir
+    environment:
+      - NODE_ENV=production
+      - LAUNCHER_BASE_URL=http://${HOST}:9090
+      - BASE_URL=http://${HOST}:9090
+      - FHIR_SERVER_R4=http://${HOST}:4444/fhir
+      - FHIR_SERVER_R4_INTERNAL=http://fhir:8080/fhir
+      - DISABLE_SANDBOXES=1
+      # - CDS_SANDBOX_URL=https://sandbox.cds-hooks.org
+      # - PICKER_CONFIG_R2=r2-local
+      # - PICKER_CONFIG_R3=r3-local
+      - PICKER_CONFIG_R4=r4-local
+      - PICKER_ORIGIN=http://${HOST}:9091
+      - STU2_ENABLED=0
+      - STU3_ENABLED=0
+      - STU4_ENABLED=1
 
   jhe:
     depends_on:

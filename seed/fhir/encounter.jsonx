@@ -1,0 +1,61 @@
+{
+      "resourceType": "Encounter",
+      "id": "0c1a1859-29c7-4f11-e908-0c86f5c34578",
+      "meta": {
+        "profile": [ "http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter" ]
+      },
+      "identifier": [ {
+        "use": "official",
+        "system": "https://github.com/synthetichealth/synthea",
+        "value": "0c1a1859-29c7-4f11-e908-0c86f5c34578"
+      } ],
+      "status": "finished",
+      "class": {
+        "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+        "code": "AMB"
+      },
+      "type": [ {
+        "coding": [ {
+          "system": "http://snomed.info/sct",
+          "code": "162673000",
+          "display": "General examination of patient (procedure)"
+        } ],
+        "text": "General examination of patient (procedure)"
+      } ],
+      "subject": {
+        "reference": "urn:uuid:0c1a1859-29c7-4f11-f21c-20a7099e8613",
+        "display": "Mrs. Adela471 Danica886 Schmitt836"
+      },
+      "participant": [ {
+        "type": [ {
+          "coding": [ {
+            "system": "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+            "code": "PPRF",
+            "display": "primary performer"
+          } ],
+          "text": "primary performer"
+        } ],
+        "period": {
+          "start": "2015-02-14T06:26:02+00:00",
+          "end": "2015-02-14T07:09:30+00:00"
+        },
+        "individual": {
+          "reference": "Practitioner?identifier=http://hl7.org/fhir/sid/us-npi|9999967398",
+          "display": "Dr. Sherita708 Hudson301"
+        }
+      } ],
+      "period": {
+        "start": "2015-02-14T06:26:02+00:00",
+        "end": "2015-02-14T07:09:30+00:00"
+      },
+      "location": [ {
+        "location": {
+          "reference": "Location?identifier=https://github.com/synthetichealth/synthea|75a53ceb-dc3f-347d-8cfb-f2f5a42837d1",
+          "display": "SOUTH BOSTON COMMUNITY HEALTH CENTER INC"
+        }
+      } ],
+      "serviceProvider": {
+        "reference": "Organization?identifier=https://github.com/synthetichealth/synthea|79d49935-bcc0-36ca-920b-45365c367438",
+        "display": "SOUTH BOSTON COMMUNITY HEALTH CENTER INC"
+      }
+    }
