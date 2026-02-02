@@ -1,6 +1,8 @@
 # jhe-smart-demo
 
-demo SMART app launch with JupyterHealth Exchange
+demo SMART-on-FHIR app launch for fetching data from JupyterHealth Exchange
+
+![screenshot](./screenshot.png)
 
 This uses docker compose to run:
 
