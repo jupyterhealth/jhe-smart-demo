@@ -1,14 +1,14 @@
 {
   "fhirServerUrl": "http://localhost:4444/v/r4/fhir",
   "authRequired": false,
-  "launchParamConfigType": "default",
+  "launchParamConfigType": "proxy",
   "formsServerUrl": "http://unused:1234/fhir",
   "appList": [
     {
       "appName": "demo",
       "launchUrl": "http://localhost:8000/launch",
-      "clientId": "a57d90e3-5f69-4b92-aa2e-2992180863c1",
-      "scope": "fhirUser openid profile patient/Patient.rs",
+      "clientId": "01961fbd-674d-74f5-991d-4f941d87d079",
+      "scope": "user/*.* patient/*.read openid profile launch launch/patient",
       "redirectUris": "http://localhost:8000/callback",
       "isEmbeddedView": true
     }
@@ -16,8 +16,8 @@
   "defaultApp": {
     "appName": "demo",
     "launchUrl": "http://localhost:8000/launch",
-    "clientId": "a57d90e3-5f69-4b92-aa2e-2992180863c1",
-    "scope": "fhirUser openid profile patient/Patient.rs",
+    "clientId": "01961fbd-674d-74f5-991d-4f941d87d079",
+    "scope": "user/*.* patient/*.read openid profile launch launch/patient",
     "redirectUris": "http://localhost:8000/callback",
     "isEmbeddedView": true
   }

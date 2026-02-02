@@ -123,7 +123,7 @@ async def index(request: Request):
 
 
 @app.get("/chart.json")
-def chart_json(request: Request, iframe: bool):
+def chart_json(request: Request, iframe: bool = False):
     session = SessionState.get_session(request)
     fhir = jhe = None
     if session:

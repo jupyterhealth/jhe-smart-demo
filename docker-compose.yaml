@@ -48,6 +48,17 @@ services:
       FHIR_SERVER_R4: "http://fhir:8080/fhir"
       SECRET: "insecure"
 
+  # lighter AEHRC version
+  ehr-launcher:
+    image: ghcr.io/aehrc/smart-ehr-launcher/smart-launcher-v2:sha-f1b2b74
+    ports:
+      - 8080:80
+    links:
+      - fhir
+    volumes:
+      - ${PWD}/launcher/config.json:/usr/share/nginx/html/config.json
+
+  # don't actually need this anymore
   smart-launcher:
     image: smartonfhir/smart-launcher:latest
     ports:
