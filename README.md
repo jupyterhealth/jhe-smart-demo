@@ -2,13 +2,30 @@
 
 demo SMART app launch with JupyterHealth Exchange
 
-THis uses docker compose to run:
+This uses docker compose to run:
 
 - postgres database
+- HAPI FHIR server
+- mock EHR SMART App Launcher
 - JupyterHealth Exchange
 - a SMART Launch App
 
-Currently, the configuration is tied to our demo medplum account as the EHR/FHIR.
+A fully self-contained FHIR server is deployed with one Practitioner and one Patient.
+These are cloned into JupyterHealth Exchange,
+with references to the FHIR resources via JHE external identifier.
+
+A sample study is created, with sample data for this patient
+loaded from https://github.com/Big-Ideas-Lab/cgm-sandbox.
+
+## What this demonstrates
+
+headline: Accessing data in JHE with credentials from SMART-on-FHIR launch
+
+A mock EHR SMART launch launches the SMART on FHIR application
+with Practitioner and Patient information.
+
+This information is mapped to entities in JHE via external identifiers,
+and data is retrieved for analysis/visualization.
 
 ## Run the demo
 
@@ -16,6 +33,12 @@ Launch:
 
 ```
 docker compose up
+```
+
+seed the FHIR database:
+
+```
+python3 seed/seed_fhir.py
 ```
 
 seed the JHE database:
