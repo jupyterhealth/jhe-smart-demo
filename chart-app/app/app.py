@@ -11,13 +11,14 @@ import hashlib
 import logging
 import secrets
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, urlunparse
 
 import httpx
+import jwt
+from async_lru import alru_cache
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
-from fhirclient.client import FHIRClient
 from jupyterhealth_client import JupyterHealthClient
 from pydantic import BaseModel, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -59,14 +60,6 @@ class Settings(BaseSettings):
         return f"{self.app_host}/callback"
 
     @computed_field
-    def fhir_defaults(self) -> dict:
-        return {
-            "app_id": self.fhir_client_id,
-            "api_base": self.fhir_api_base,
-            "redirect_uri": self.fhir_redirect_uri,
-        }
-
-    @computed_field
     def jhe_redirect_uri(self) -> str:
         return f"{self.app_host}/jhe_callback"
 
@@ -77,6 +70,8 @@ middleware = [
     Middleware(
         SessionMiddleware,
         secret_key=settings.secret_key,
+        # need same-site: None for iframe EHR launch
+        same_site="None",
         # should have https_only if on https (i.e. real deployment)
         # https_only=True,
     )
@@ -104,38 +99,25 @@ class SessionState(BaseModel):
     since it's too big for a cookie.
     """
 
-    fhir_state: dict = {}
+    fhir_token: str = ""
+    fhir_api: str = ""
+    fhir_oauth_state: str = ""
+    fhir_code_verifier: str = ""
+    fhir_launch: str = ""
+    fhir_context: dict = {}
+
     jhe_token: str = ""
     jhe_oauth_state: str = ""
     jhe_code_verifier: str = ""
 
-    def _save_fhir_state(self, state):
-        """Persist updates to the state
-
-        for later deserialization
-        """
-        self.fhir_state = state
-
-    def get_fhir(self) -> FHIRClient | None:
-        if self.fhir_state:
-            return FHIRClient(state=self.fhir_state, save_func=self._save_fhir_state)
-        else:
-            return None
-
-    def new_fhir(self, settings) -> FHIRClient:
-        """Reset and create new FHIR state
-
-        At the start of SMART on FHIR launch.
-        """
-        self.fhir_state = {}
-        client = FHIRClient(settings=settings, save_func=self._save_fhir_state)
-        self._save_fhir_state(client.state)
-        return client
+    # async def get_fhir(self, path):
+    def get_fhir(self):
+        return None
 
     def get_jhe(self) -> JupyterHealthClient | None:
         """Get JupyterHealth Client object"""
         if self.jhe_token:
-            return JupyterHealthClient(token=self.jhe_token)
+            return JupyterHealthClient(url=settings.jhe_url, token=self.jhe_token)
         else:
             return None
 
@@ -163,14 +145,6 @@ def _get_session(session: dict, make_new: bool = False) -> SessionState | None:
         return None
 
 
-def _get_fhir(session) -> FHIRClient | None:
-    """Get the current session's FHIRClient, if any"""
-    state = _get_session(session)
-    if state is None:
-        return None
-    return state.get_fhir()
-
-
 def _get_jhe(session) -> JupyterHealthClient | None:
     """Get the current session's JupyterHealthClient, if any"""
     state = _get_session(session)
@@ -185,6 +159,21 @@ def _logout(session):
     _sessions.pop(session_id, None)
 
 
+def _human_name(resource):
+    name = resource.get("name")
+    if not name:
+        return "unknown"
+
+    if isinstance(name, list):
+        name = name[0]
+    fields = name.get("given", [])
+    if name.get("family"):
+        fields.append(name["family"])
+    if name.get("prefix"):
+        fields = name["prefix"] + fields
+    return " ".join(fields).strip() or "Unknown"
+
+
 @app.get("/")
 @app.get("/index.html")
 async def index(request: Request):
@@ -192,44 +181,60 @@ async def index(request: Request):
     session = _get_session(request.session)
     fhir = jhe = None
     if session:
-        fhir = session.get_fhir()
+        fhir = session.fhir_context
         jhe = session.get_jhe()
 
     ns = {"request": request}
 
     # "ready" may be true but the access token may have expired, making fhir.patient = None
-    if fhir and fhir.ready and fhir.patient is not None:
-        ns["patient_name"] = fhir.human_name(
-            fhir.patient.name[0]
-            if fhir.patient.name and len(fhir.patient.name) > 0
-            else "Unknown"
-        )
-        ns["patient_id"] = fhir.patient_id
+    if fhir:
+        patient_id = fhir["patient"]
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                f"{session.fhir_api}/Patient/{fhir['patient']}",
+                headers={
+                    "Authorization": f"Bearer {fhir['access_token']}",
+                    "Accept": "application/json",
+                },
+            )
+            r.raise_for_status()
+            patient = r.json()
+        ns["patient_name"] = _human_name(patient)
+        ns["patient_id"] = patient_id
+        # medplum populates 'profile' in launch context
+        # smart-on-fhir sandbox does not
+        # profile = fhir.launch_context.get("profile")
+        profile = None
+        if not profile:
+            # get profile from id token
+            id_token = fhir["id_token"]
+            # Spec says you can trust JWT retrieved directly from trusted IdP
+            token_info = jwt.decode(id_token, options={"verify_signature": False})
+            log.info(f"Attempting to fetch practitioner profile from {token_info}")
+            # fhirUser="Practitioner/idnumber"
+            # also available as 'profile' _sometimes_
+            async with httpx.AsyncClient() as client:
+                r = await client.get(
+                    f"{session.fhir_api}/{token_info['fhirUser']}",
+                    headers={
+                        "Authorization": f"Bearer {fhir['access_token']}",
+                        "Accept": "application/json",
+                    },
+                )
+                r.raise_for_status()
+                practitioner = r.json()
 
-        profile = fhir.launch_context["profile"]
-        ns["practitioner_name"] = profile.get("display", "unknown")
-        ns["practitioner_id"] = profile["reference"]
+            ns["practitioner_name"] = _human_name(practitioner)
+            ns["practitioner_id"] = practitioner["id"]
 
     jhe = _get_jhe(request.session)
     if jhe:
+        # TODO: handle expired token
         jhe_user = jhe.get_user()
         ns["jhe_user"] = jhe_user
     else:
         ns["jhe_user"] = False
     return templates.TemplateResponse("chart.html", ns)
-
-
-@app.get("/callback")
-def fhir_callback(request: Request, code: str):
-    """OAuth2 callback for FHIR"""
-    fhir = _get_fhir(request.session)
-    if fhir is None:
-        raise HTTPException(status_code=400, detail="no session, start again.")
-    try:
-        fhir.handle_callback(str(request.url))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    return RedirectResponse("/")
 
 
 @app.get("/logout")
@@ -240,19 +245,61 @@ def logout(request: Request):
 
 
 @app.get("/launch")
-def launch(request: Request, iss: str, launch: str):
+async def launch(request: Request, iss: str, launch: str):
     session_state = _get_session(request.session, make_new=True)
+    session_state.fhir_api = iss.rstrip("/")
     assert session_state is not None
-    # reset for new launch
-    smart_settings = {}
-    smart_settings.update(settings.fhir_defaults)
-    smart_settings["api_base"] = iss
-    smart_settings["launch_token"] = launch
-    fhir = session_state.new_fhir(smart_settings)
-    assert _get_fhir(request.session) is not None
-    auth_url = fhir.authorize_url
-    log.info("redirecting to %s", auth_url)
-    return RedirectResponse(auth_url)
+    print("launch!")
+    url, state, code_verifier = await _openid_authorize_redirect(
+        iss,
+        client_id=settings.fhir_client_id,
+        redirect_uri=settings.fhir_redirect_uri,
+        scope="user/*.* patient/*.read openid profile launch launch/patient",
+        extra_params={"launch": launch, "aud": session_state.fhir_api},
+    )
+    session_state.fhir_code_verifier = code_verifier
+    session_state.fhir_oauth_state = state
+    return RedirectResponse(url)
+
+
+@app.get("/callback")
+async def fhir_callback(
+    request: Request,
+    code: str = "",
+    error: str = "",
+    error_description: str = "",
+    state: str = "",
+):
+    """OAuth2 callback for FHIR"""
+    session = _get_session(request.session)
+    if session is None:
+        raise HTTPException(status_code=400, detail="no session, start again.")
+
+    check_state = session.fhir_oauth_state
+    session.fhir_oauth_state = ""
+    code_verifier = session.fhir_code_verifier
+    session.fhir_code_verifier = ""
+    token_response = await _openid_token_callback(
+        session.fhir_api,
+        settings.fhir_client_id,
+        code,
+        error,
+        error_description,
+        state,
+        check_state,
+        code_verifier,
+        extra_params={
+            "redirect_uri": settings.fhir_redirect_uri,
+            "state": state,
+        },
+    )
+    print(token_response)
+    session.fhir_context = token_response
+    session.fhir_token = token_response["access_token"]
+    log.info(
+        "Authenticated with %s as %s", session.fhir_api, token_response.get("profile")
+    )
+    return RedirectResponse("/")
 
 
 # JHE handlers
@@ -265,6 +312,54 @@ def _generate_pkce_params():
         base64.urlsafe_b64encode(code_challenge).decode("utf-8").rstrip("=")
     )
     return code_verifier, code_challenge_base64
+
+
+@alru_cache
+async def _get_openid_config(openid_base_uri):
+    async with httpx.AsyncClient() as client:
+        url = f"{openid_base_uri.rstrip('/')}/.well-known/openid-configuration"
+        try:
+            r = await client.get(url)
+            r.raise_for_status()
+        except Exception as e:
+            # if not
+            url = urlunparse(
+                urlparse(openid_base_uri)._replace(
+                    path="/.well-known/openid-configuration"
+                )
+            )
+            try:
+                r = await client.get(url)
+                r.raise_for_status()
+            except Exception as e2:
+                raise e from None
+
+        config = r.json()
+    return config
+
+
+async def _openid_authorize_redirect(
+    openid_base_uri, client_id, redirect_uri, scope, extra_params=None
+):
+    state = secrets.token_urlsafe(16)
+    openid_config = await _get_openid_config(openid_base_uri)
+    authorize_url = openid_config["authorization_endpoint"]
+    code_verifier, code_challenge = _generate_pkce_params()
+
+    authorize_params = {
+        "state": state,
+        "client_id": client_id,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "scope": scope,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    if extra_params:
+        authorize_params.update(extra_params)
+    url = f"{authorize_url}?{urlencode(authorize_params)}"
+    log.info("Redirecting to %s", url)
+    return url, state, code_verifier
 
 
 @app.get("/jhe_login")
@@ -283,22 +378,64 @@ async def jhe_login(request: Request) -> None:
             # logged in, go back home
             return RedirectResponse("/")
 
+    url, state, code_verifier = await _openid_authorize_redirect(
+        f"{settings.jhe_public_url}/o",
+        client_id=settings.jhe_client_id,
+        scope="openid",
+        redirect_uri=settings.jhe_redirect_uri,
+    )
     # begin OAuth redirect
-    session.jhe_oauth_state = state = secrets.token_urlsafe(16)
-    authorize_url = f"{settings.jhe_public_url}/o/authorize"
-
-    code_verifier, code_challenge = _generate_pkce_params()
+    session.jhe_oauth_state = state
     session.jhe_code_verifier = code_verifier
+    return RedirectResponse(url)
 
-    authorize_params = {
-        "state": state,
-        "client_id": settings.jhe_client_id,
-        "response_type": "code",
-        "redirect_uri": settings.jhe_redirect_uri,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
+
+async def _openid_token_callback(
+    openid_base_uri,
+    client_id,
+    code,
+    error,
+    error_description,
+    state,
+    check_state,
+    code_verifier,
+    extra_params=None,
+):
+    openid_config = await _get_openid_config(openid_base_uri)
+    token_url = openid_config["token_endpoint"]
+
+    if error:
+        raise HTTPException(500, error_description)
+    if not code:
+        raise HTTPException(400, "Missing code= parameter")
+
+    # token_url = f"{settings.jhe_url}/o/token/"
+    if not state:
+        raise HTTPException(400, "OAuth state missing")
+    if state != check_state:
+        raise HTTPException(400, "OAuth state doesn't match")
+
+    params = {
+        "code": code,
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        # client_secret if confidential
+        "code_verifier": code_verifier,
     }
-    return RedirectResponse(f"{authorize_url}?{urlencode(authorize_params)}")
+    if extra_params:
+        params.update(extra_params)
+
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            token_url,
+            data=params,
+        )
+        if r.status_code >= 400:
+            print(r.json())
+            r.raise_for_status()
+        token_response = r.json()
+
+    return token_response
 
 
 @app.get("/jhe_callback")
@@ -316,31 +453,18 @@ async def jhe_callback(
 
     check_state = session.jhe_oauth_state
     session.jhe_oauth_state = ""
-
-    if error:
-        raise HTTPException(500, error_description)
-    if not code:
-        raise HTTPException(400, "Missing code= parameter")
-
-    token_url = f"{settings.jhe_url}/o/token/"
-    if not state:
-        raise HTTPException(400, "OAuth state missing")
-    if state != check_state:
-        raise HTTPException(400, "OAuth state doesn't match")
-
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            token_url,
-            data={
-                "code": code,
-                "grant_type": "authorization_code",
-                "client_id": settings.jhe_client_id,
-                # client_secret if confidential
-                "code_verifier": session.jhe_code_verifier,
-            },
-        )
-        r.raise_for_status()
-        token_response = r.json()
+    code_verifier = session.jhe_code_verifier
+    session.jhe_code_verifier = ""
+    token_response = await _openid_token_callback(
+        f"{settings.jhe_public_url}/o",
+        settings.jhe_client_id,
+        code,
+        error,
+        error_description,
+        state,
+        check_state,
+        code_verifier,
+    )
     session.jhe_token = token_response["access_token"]
     jhe = session.get_jhe()
     assert jhe is not None

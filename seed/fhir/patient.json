@@ -1,0 +1,25 @@
+{
+  "resourceType": "Patient",
+  "name": [
+    {
+      "use": "official",
+      "family": "Fakerson",
+      "given": ["Fake"]
+    }
+  ],
+  "birthDate": "2001-02-04",
+  "telecom": [
+    {
+      "system": "email",
+      "value": "fakerson2001@example.org"
+    }
+  ],
+  "address": [
+    {
+      "line": ["123 Fake Street"],
+      "city": "Berkeley",
+      "state": "CA",
+      "postalCode": "94720"
+    }
+  ]
+}

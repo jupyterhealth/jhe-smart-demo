@@ -1,4 +1,12 @@
 services:
+  db:
+    image: postgres:18.1
+    env_file:
+      - .env.db
+    volumes:
+      - db:/var/lib/postgresql
+      - ${PWD}/initdb.sh:/docker-entrypoint-initdb.d/initdb.sh
+
   chart-app:
     image: chart-app
     build:
@@ -7,15 +15,47 @@ services:
       - 127.0.0.1:8000:8000
     env_file:
       - chart-app/.env
-    links:
-      - jhe
+    # links:
+    #   - jhe
+    # needs to be host so that browser URLs
+    # match backend URLs
+    network_mode: host
 
-  db:
-    image: postgres:18.1
-    env_file:
-      - .env.db
+  # the actual fhir server
+  fhir:
+    depends_on:
+      - db
+    image: hapiproject/hapi:v8.6.0-1
+    ports:
+      # only needs port for seeding
+      - "4040:8080"
+    links:
+      - db
     volumes:
-      - db:/var/lib/postgresql
+      - ${PWD}/fhir/hapi.application.yaml:/app/config/application.yaml
+
+  fhirproxy:
+    image: aehrc/smart-launcher-v2
+    # image: smartonfhir/smart-launcher-2
+    ports:
+      - "4444:4444"
+    links:
+      - fhir
+    environment:
+      PORT: "4444"
+      FHIR_SERVER_R2: ""
+      FHIR_SERVER_R3: ""
+      FHIR_SERVER_R4: "http://fhir:8080/fhir"
+      SECRET: "insecure"
+
+  launcher:
+    image: ghcr.io/aehrc/smart-ehr-launcher/smart-launcher-v2:sha-f1b2b74
+    links:
+      - db
+    ports:
+      - 8080:80
+    volumes:
+      - ${PWD}/launcher/config.json:/usr/share/nginx/html/config.json
 
   jhe:
     depends_on:
@@ -28,6 +68,7 @@ services:
       - .env
     links:
       - db
+      - fhir # for seeding
 
 volumes:
   db:

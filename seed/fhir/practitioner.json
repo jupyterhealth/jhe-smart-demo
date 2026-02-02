@@ -1,0 +1,26 @@
+{
+  "resourceType": "Practitioner",
+  "name": [
+    {
+      "use": "official",
+      "family": "Crusher",
+      "given": ["Beverly"],
+      "prefix": ["Dr."]
+    }
+  ],
+  "birthDate": "2324-10-13",
+  "telecom": [
+    {
+      "system": "email",
+      "value": "drcrusher@example.org"
+    }
+  ],
+  "address": [
+    {
+      "line": ["1701 D Enterprise St."],
+      "city": "San Francisco",
+      "state": "CA",
+      "postalCode": "94102"
+    }
+  ]
+}
