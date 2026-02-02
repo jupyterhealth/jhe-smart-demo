@@ -56,7 +56,7 @@
       async function refreshPlot() {
         // begin constructing URL to request the plot JSON
         const plotUrl = new URL(
-          `${document.location.protocol}//${document.location.host}/chart.json`,
+          `${document.location.protocol}//${document.location.host}/chart.json{%- if iframe -%} ?iframe=1{%- endif -%}`,
         );
         const response = await fetch(plotUrl.href);
         const spec = await response.json();
