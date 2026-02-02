@@ -137,11 +137,19 @@ def chart_json(request: Request, iframe: bool = False):
     if not jhe:
         log.warning("No JHE for chart")
         return None
+
+    # this is the key part of this demo:
+    # - get fhir Patient
+    # - lookup same patient in JHE
+    # - get data from JHE
+    # - plot it
     fhir_patient_id = fhir["patient"]
     jhe_patient = jhe.get_patient_by_external_id(fhir_patient_id)
     df = df = jhe.list_observations_df(
         patient_id=jhe_patient["id"], code=Code.BLOOD_GLUCOSE
     )
+    # this is where the real analysis would go
+    # for now, simple timeseries plot
     chart = (
         alt.Chart(df)
         .mark_line()
