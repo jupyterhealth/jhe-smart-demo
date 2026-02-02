@@ -72,8 +72,8 @@ acme = Organization.objects.create(
 )
 
 study = Study.objects.create(
-    name="Demo Study on BP & HR",
-    description="Blood Pressure & Heart Rate",
+    name="Demo Study",
+    description="Sample data from https://github.com/Big-Ideas-Lab/cgm-sandbox",
     organization=acme,
 )
 
