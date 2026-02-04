@@ -8,7 +8,8 @@ import secrets
 
 from fastapi import Request
 from jupyterhealth_client import JupyterHealthClient
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from requests_oauthlib import OAuth2Session
 
 from .log import log
 from .settings import settings
@@ -31,19 +32,12 @@ class SessionState(BaseModel):
     since it's too big for a cookie.
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     fhir_token: str = ""
-    fhir_api: str = ""
-    fhir_oauth_state: str = ""
-    fhir_code_verifier: str = ""
-    fhir_launch: str = ""
+    fhir_oauth_session: OAuth2Session | None = None
     fhir_context: dict = {}
 
     jhe_token: str = ""
-    jhe_oauth_state: str = ""
-    jhe_code_verifier: str = ""
-
-    def get_fhir(self):
-        return None
 
     def get_jhe(self) -> JupyterHealthClient | None:
         """Get JupyterHealth Client object"""
@@ -90,17 +84,27 @@ class SessionState(BaseModel):
         else:
             session_id = None
 
-        if session_id:
-            session_state = _sessions.get(session_id)
-            if session_state is not None:
-                return session_state
-
         if make_new:
             log.info("Making new Session")
             if session_id != "iframe":
                 session_id = secrets.token_urlsafe(16)
                 session[SESSION_KEY] = session_id
             _sessions[session_id] = s = SessionState()
+            s.fhir_oauth_session = s._new_oauth_session()
             return s
+        elif session_id:
+            session_state = _sessions.get(session_id)
+            if session_state is not None:
+                return session_state
         else:
             return None
+
+    def _new_oauth_session(self) -> OAuth2Session:
+        s = OAuth2Session(
+            client_id=settings.fhir_client_id,
+            redirect_uri=settings.fhir_redirect_uri,
+            pkce="S256",
+            # TODO: configure scope
+            scope="user/*.* patient/*.read openid profile launch launch/patient",
+        )
+        return s

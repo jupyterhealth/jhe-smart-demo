@@ -18,7 +18,6 @@ from jupyterhealth_client import Code
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import oauth
 from .jhe import exchange_token
 from .log import log
 from .session import SessionState
@@ -73,7 +72,7 @@ async def index(request: Request):
         patient_id = fhir["patient"]
         async with httpx.AsyncClient() as client:
             r = await client.get(
-                f"{session.fhir_api}/Patient/{fhir['patient']}",
+                f"{settings.fhir_api_base}/Patient/{fhir['patient']}",
                 headers={
                     "Authorization": f"Bearer {fhir['access_token']}",
                     "Accept": "application/json",
@@ -97,7 +96,7 @@ async def index(request: Request):
             # also available as 'profile' _sometimes_
             async with httpx.AsyncClient() as client:
                 r = await client.get(
-                    f"{session.fhir_api}/{token_info['fhirUser']}",
+                    f"{settings.fhir_api_base}/{token_info['fhirUser']}",
                     headers={
                         "Authorization": f"Bearer {fhir['access_token']}",
                         "Accept": "application/json",
@@ -174,19 +173,14 @@ def logout(request: Request):
 @app.get("/launch")
 async def launch(request: Request, iss: str, launch: str):
     session_state = SessionState.get_session(request, make_new=True)
-    session_state.fhir_api = iss.rstrip("/")
-    assert session_state is not None
-    url, state, code_verifier = await oauth._openid_authorize_redirect(
-        iss,
-        client_id=settings.fhir_client_id,
-        redirect_uri=settings.fhir_redirect_uri,
-        scope="user/*.* patient/*.read openid profile launch launch/patient",
-        extra_params={"launch": launch, "aud": session_state.fhir_api},
-        smart=True,
+    oauth = session_state.fhir_oauth_session
+    authorization_url, _state = oauth.authorization_url(
+        settings.fhir_smart_configuration["authorization_endpoint"],
+        launch=launch,
+        aud=settings.fhir_api_base,
     )
-    session_state.fhir_code_verifier = code_verifier
-    session_state.fhir_oauth_state = state
-    return RedirectResponse(url)
+
+    return RedirectResponse(authorization_url)
 
 
 @app.get("/callback")
@@ -201,105 +195,28 @@ async def fhir_callback(
     session = SessionState.get_session(request)
     if session is None:
         raise HTTPException(status_code=400, detail="no session, start again.")
-
-    check_state = session.fhir_oauth_state
-    session.fhir_oauth_state = ""
-    code_verifier = session.fhir_code_verifier
-    session.fhir_code_verifier = ""
-    token_response = await oauth._openid_token_callback(
-        session.fhir_api,
-        settings.fhir_client_id,
-        code,
-        error,
-        error_description,
-        state,
-        check_state,
-        code_verifier,
-        extra_params={
-            "redirect_uri": settings.fhir_redirect_uri,
-            "state": state,
-        },
-        smart=True,
+    oauth = session.fhir_oauth_session
+    token_response = oauth.fetch_token(
+        settings.fhir_smart_configuration["token_endpoint"],
+        # authorization_response=str(request.url),
+        code=code,
+        state=state,
     )
-    session.fhir_context = token_response
     session.fhir_token = token_response["access_token"]
+    session.fhir_context = token_response
     log.info(
-        "Authenticated with %s as %s", session.fhir_api, token_response.get("profile")
+        "Authenticated with %s as %s",
+        settings.fhir_api_base,
+        token_response.get("profile"),
     )
     # translate public issuer to
     # to private view from JHE (not needed in real public deployment)
-    iss = session.fhir_api.replace("localhost", "fhirproxy")
+    iss = settings.fhir_api_base.replace("localhost", "fhirproxy")
 
     session.jhe_token = exchange_token(settings.jhe_url, session.fhir_token, iss=iss)
     jhe = session.get_jhe()
     jhe_user = jhe.get_user()
     log.info("Authenticated with %s as %s", settings.jhe_url, jhe_user)
-    return RedirectResponse("/")
-
-
-# JHE handlers
-
-
-@app.get("/jhe_login")
-async def jhe_login(request: Request) -> None:
-    session = SessionState.get_session(request, make_new=True)
-    assert session is not None
-    if session.jhe_token:
-        jhe = session.get_jhe()
-        assert jhe is not None
-        try:
-            user = jhe.get_user()
-        except Exception:
-            log.error("Failed to get JHE user")
-            session.jhe_token = ""
-        else:
-            # logged in, go back home
-            return RedirectResponse("/")
-
-    url, state, code_verifier = await oauth._openid_authorize_redirect(
-        f"{settings.jhe_public_url}/o",
-        client_id=settings.jhe_client_id,
-        scope="openid",
-        redirect_uri=settings.jhe_redirect_uri,
-    )
-    # begin OAuth redirect
-    session.jhe_oauth_state = state
-    session.jhe_code_verifier = code_verifier
-    return RedirectResponse(url)
-
-
-@app.get("/jhe_callback")
-async def jhe_callback(
-    request: Request,
-    code: str = "",
-    error: str = "",
-    error_description: str = "",
-    state: str = "",
-):
-    """Complete OAuth callback"""
-    session = SessionState.get_session(request)
-    if session is None:
-        raise HTTPException(400, "No session, login again")
-
-    check_state = session.jhe_oauth_state
-    session.jhe_oauth_state = ""
-    code_verifier = session.jhe_code_verifier
-    session.jhe_code_verifier = ""
-    token_response = await oauth._openid_token_callback(
-        f"{settings.jhe_public_url}/o",
-        settings.jhe_client_id,
-        code,
-        error,
-        error_description,
-        state,
-        check_state,
-        code_verifier,
-    )
-    session.jhe_token = token_response["access_token"]
-    jhe = session.get_jhe()
-    assert jhe is not None
-    user = jhe.get_user()
-    log.info("Authenticated with JHE as %s", user)
     return RedirectResponse("/")
 
 

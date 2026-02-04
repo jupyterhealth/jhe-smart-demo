@@ -6,6 +6,11 @@ def exchange_token(jhe_url, access_token, iss):
     RFC 8693 OAuth token exchange
 
     https://datatracker.ietf.org/doc/html/rfc8693
+
+    Exchanges FHIR access token for a JHE access token.
+
+    Requires Provider.id to be registered as external Identifier
+    in JHE.
     """
     r = requests.post(
         f"{jhe_url}/o/token-exchange",
@@ -18,7 +23,6 @@ def exchange_token(jhe_url, access_token, iss):
             "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
         },
     )
-    print(r.status_code, r.text)
     if r.status_code >= 400:
         print(r.json())
         r.raise_for_status()

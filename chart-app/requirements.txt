@@ -48,8 +48,6 @@ fastapi-cloud-cli==0.11.0
     # via fastapi-cli
 fastar==0.8.0
     # via fastapi-cloud-cli
-fhirclient==4.3.2
-    # via -r requirements.in
 h11==0.16.0
     # via
     #   httpcore
@@ -93,6 +91,8 @@ narwhals==2.15.0
     # via altair
 numpy==2.4.1
     # via pandas
+oauthlib==3.3.1
+    # via requests-oauthlib
 orjson==3.11.6
     # via fastapi
 packaging==26.0
@@ -139,8 +139,10 @@ referencing==0.37.0
     #   jsonschema-specifications
 requests==2.32.5
     # via
-    #   fhirclient
     #   jupyterhealth-client
+    #   requests-oauthlib
+requests-oauthlib==2.0.0
+    # via -r requirements.in
 rich==14.3.1
     # via
     #   rich-toolkit

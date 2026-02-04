@@ -1,8 +1,8 @@
 altair
 async-lru
 fastapi[all]
-fhirclient
+jupyterhealth-client
 pandas
 pydantic-settings
 pyjwt
-jupyterhealth-client
+requests-oauthlib
