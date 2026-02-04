@@ -19,6 +19,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import oauth
+from .jhe import exchange_token
 from .log import log
 from .session import SessionState
 from .settings import settings
@@ -225,6 +226,14 @@ async def fhir_callback(
     log.info(
         "Authenticated with %s as %s", session.fhir_api, token_response.get("profile")
     )
+    # translate public issuer to
+    # to private view from JHE (not needed in real public deployment)
+    iss = session.fhir_api.replace("localhost", "fhirproxy")
+
+    session.jhe_token = exchange_token(settings.jhe_url, session.fhir_token, iss=iss)
+    jhe = session.get_jhe()
+    jhe_user = jhe.get_user()
+    log.info("Authenticated with %s as %s", settings.jhe_url, jhe_user)
     return RedirectResponse("/")
 
 
